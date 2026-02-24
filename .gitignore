@@ -207,10 +207,12 @@ marimo/_lsp/
 __marimo__/
 
 # Being — project-specific
-data/avatars/*/
+data/
+!data/.gitkeep
 output/
 extern/
 !extern/.gitkeep
+assets/*.avi
 *.npy
 *.pt
 *.pth
@@ -224,4 +226,3 @@ extern/
 # IDE
 .idea/
 /quick_commands.txt
-/data/roman_v2/
