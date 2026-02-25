@@ -46,30 +46,52 @@ No conversion scripts needed. metrical-tracker's output is FlashAvatar's native 
 ## Lesson learned
 **Don't bypass the intended pipeline.** The custom conversion between flame-head-tracker and FlashAvatar introduced subtle bugs that were extremely hard to debug. Two different tracker codebases with different coordinate conventions, rotation representations, and camera models made reliable conversion nearly impossible.
 
-## Fresh start plan
-1. **Trim video** to 15-20 seconds (450-600 frames at 30fps)
-   - Pick a segment with varied expressions and head motion
-   - FlashAvatar paper trains on short clips
-2. **Run metrical-tracker** on the trimmed clip
-   - 500 frames × 1.4 min = ~12 hours (overnight)
-   - Native `.frame` output — zero conversion needed
-   - The tracker is slow but correct
-3. **Train FlashAvatar** directly on metrical-tracker output
-   - No convert_to_frame.py, no smoothing hacks
-   - Should "just work" like the Obama example
+## Fresh start — SUCCESS (2026-02-25)
+
+### What we did
+1. **New 30s recording** at 1080p/60fps (recording script: `notes/recording-script-30s.md`)
+2. **metrical-tracker** on the new video: 838 frames at 25fps, completed in ~2h50m (~12s/frame on A100, NOT 1.4min as originally estimated)
+3. **MICA identity** regenerated for the new video
+4. **Masks** generated (RVM alpha + BiSeNet parsing) — 9 minutes for 839 images
+5. **FlashAvatar training** with test_num=100 (738 train, 100 test): 150K iterations, ~45 min total
+
+### Results
+- **Camera: FIXED.** No blank render, no conversion bugs. Native metrical-tracker output works perfectly.
+- **Face quality: Good.** Recognizable, expressions tracked well, smooth between frames.
+- **Minor jitter:** metrical-tracker estimates per-frame camera pose (doesn't know camera was static), causes mild whole-bust shifting. Not a showstopper but noticeable.
+- **No neck/shoulders:** This is a fundamental FlashAvatar limitation — FLAME mesh only covers face + scalp. The rendered avatar is a floating head.
+
+### Conclusion
+FlashAvatar works as a research demo but isn't practical for a real avatar product:
+- No neck, shoulders, or body — just a floating head on the FLAME mesh
+- No built-in audio pipeline — it's a renderer only, needs a separate audio→FLAME model
+- The camera jitter from per-frame estimation is cosmetically annoying
+
+**Decision: Return to GaussianTalker** which renders the full frame (head + shoulders + hair + background) and has an end-to-end audio→video pipeline. See `notes/2026-02-25-next-steps.md`.
+
+### What we keep from this work
+- 30s recording and recording script
+- 838 frames of FLAME tracking data (backed up locally: `data/metrical-tracker-backup/roman/checkpoint/`)
+- Knowledge of metrical-tracker pipeline (much faster than estimated on A100)
+- FlashAvatar model as a comparison baseline
 
 ## Key files (on pod)
 - `/workspace/flame-head-tracker/` — tracker with all patches (no longer using)
-- `/workspace/metrical-tracker/` — original tracker, what we should have used
-- `/workspace/FlashAvatar/` — training code
+- `/workspace/metrical-tracker/` — original tracker, used for fresh start
+- `/workspace/FlashAvatar/` — training code, model at `dataset/roman/log/ckpt/chkpnt150000.pth`
 - `/workspace/convert_to_frame.py` — custom conversion (source of bugs, no longer using)
 
 ## Key files (local)
 - `assets/test_audio.wav` — 19s benchmark audio (16kHz mono)
 - `assets/flashavatar_test_15k.avi` — test render from 15K (camera bugs, pre-smoothing)
 - `assets/flashavatar_test_55k_smoothed.avi` — test render from 55K (smoothed but still shaking)
+- `assets/flashavatar_test_35k_fresh.avi` — fresh start, 35K (first clean render)
+- `assets/flashavatar_test_85k_fresh.avi` — fresh start, 85K
+- `assets/flashavatar_test_150k_fresh.avi` — fresh start, 150K (final)
 
 ## Related notes
 - `notes/2026-02-24-flame-tracker-switch.md` — details on flame-head-tracker patches
 - `notes/2026-02-24-mouth-mask-bug.md` — BiSeNet label fix
 - `notes/2026-02-23-flashavatar-setup.md` — initial FlashAvatar setup
+- `notes/2026-02-25-next-steps.md` — plan for GaussianTalker round 2
+- `notes/recording-script-30s.md` — condensed recording script
