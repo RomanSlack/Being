@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decoupled Talking Head Pipeline — ARTalk + SplattingAvatar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,600;1,6..72,300;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0c0e;
+    --surface: #141418;
+    --border: #1e1e24;
+    --text: #c8c5be;
+    --text-dim: #6b6860;
+    --text-bright: #eae7df;
+    --accent: #d4a574;
+    --accent-dim: #8b6b4a;
+    --accent-glow: rgba(212, 165, 116, 0.08);
+    --flame: #e8734a;
+    --cyan: #5ba4b5;
+    --green: #7aad6f;
+    --mono: 'DM Mono', 'SF Mono', monospace;
+    --serif: 'Newsreader', 'Georgia', serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .noise {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 999;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+  }
+
+  .page {
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 80px 24px 120px;
+  }
+
+  /* Header */
+  header {
+    margin-bottom: 64px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 120px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .eyebrow::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: 36px;
+    font-weight: 600;
+    color: var(--text-bright);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin-bottom: 16px;
+  }
+
+  .subtitle {
+    font-size: 18px;
+    color: var(--text-dim);
+    font-style: italic;
+    font-weight: 300;
+  }
+
+  /* Sections */
+  section {
+    margin-bottom: 56px;
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h3 {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 10px;
+    margin-top: 32px;
+  }
+
+  p {
+    margin-bottom: 14px;
+    color: var(--text);
+  }
+
+  strong { color: var(--text-bright); font-weight: 600; }
+  em { color: var(--text); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  /* Pipeline Diagram */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 28px 0;
+    margin: 24px 0;
+    overflow-x: auto;
+    justify-content: center;
+  }
+
+  .pipe-node {
+    padding: 12px 18px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text);
+    background: var(--surface);
+    white-space: nowrap;
+    position: relative;
+    transition: border-color 0.3s;
+  }
+
+  .pipe-node:hover {
+    border-color: var(--accent-dim);
+  }
+
+  .pipe-node.highlight {
+    border-color: var(--accent-dim);
+    background: var(--accent-glow);
+    color: var(--text-bright);
+  }
+
+  .pipe-node .label {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+
+  .pipe-node.flame-node { border-color: #3d2a1e; }
+  .pipe-node.flame-node .label { color: var(--flame); }
+
+  .pipe-arrow {
+    font-family: var(--mono);
+    font-size: 16px;
+    color: var(--text-dim);
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+
+  /* Detail block under pipeline */
+  .pipe-detail {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: -8px;
+    margin-bottom: 24px;
+  }
+
+  /* Phase cards */
+  .phase {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 24px 28px;
+    margin-bottom: 16px;
+    position: relative;
+    transition: border-color 0.3s;
+  }
+
+  .phase:hover { border-color: #2a2a32; }
+
+  .phase-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .phase-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+
+  .phase-title {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+
+  .phase-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .tag-complete { background: rgba(122, 173, 111, 0.12); color: var(--green); border: 1px solid rgba(122, 173, 111, 0.2); }
+  .tag-active { background: rgba(212, 165, 116, 0.12); color: var(--accent); border: 1px solid rgba(212, 165, 116, 0.2); }
+
+  .phase ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .phase li {
+    padding: 4px 0;
+    padding-left: 16px;
+    position: relative;
+    font-size: 14.5px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  .phase li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 12px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--text-dim);
+  }
+
+  .stat {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--cyan);
+  }
+
+  /* Insights */
+  .insights {
+    counter-reset: insight;
+  }
+
+  .insight {
+    display: flex;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: baseline;
+  }
+
+  .insight:last-child { border-bottom: none; }
+
+  .insight-num {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    width: 20px;
+  }
+
+  .insight-text {
+    font-size: 14.5px;
+    line-height: 1.6;
+  }
+
+  /* Status bar */
+  .status-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px 28px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1.5s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  .status-text {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .status-text strong {
+    color: var(--accent);
+  }
+
+  /* Footer */
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .page { padding: 40px 16px 80px; }
+    h1 { font-size: 28px; }
+    .pipeline { flex-wrap: wrap; gap: 4px; justify-content: flex-start; }
+    .pipe-arrow { padding: 0 3px; font-size: 13px; }
+    .pipe-node { padding: 8px 12px; font-size: 11px; }
+    .phase { padding: 18px 20px; }
+    .phase-header { flex-wrap: wrap; }
+    .phase-tag { margin-left: 0; }
+    footer { flex-direction: column; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="page">
+
+  <header>
+    <div class="eyebrow">Being Project &mdash; Technical Reference</div>
+    <h1>Decoupled Talking Head Pipeline</h1>
+    <div class="subtitle">ARTalk + SplattingAvatar &mdash; audio-driven Gaussian avatar rendering</div>
+  </header>
+
+  <!-- Overview -->
+  <section>
+    <h2>Overview</h2>
+    <p>
+      <strong>Goal:</strong> Record 30 seconds of video, get a photorealistic avatar you can drive with any audio in real-time.
+    </p>
+    <p>
+      The pipeline is <strong>fully decoupled</strong> &mdash; the audio-to-motion model (ARTalk, SIGGRAPH Asia 2025) and the motion-to-render model (SplattingAvatar, CVPR 2024) are independent. Swap either piece without touching the other. Each component is state-of-the-art on its own.
+    </p>
+  </section>
+
+  <!-- Pipeline -->
+  <section>
+    <h2>Architecture</h2>
+    <div class="pipeline">
+      <div class="pipe-node">
+        <span class="label">Input</span>
+        Audio (.wav)
+      </div>
+      <span class="pipe-arrow">&rarr;</span>
+      <div class="pipe-node highlight">
+        <span class="label">Motion Model</span>
+        ARTalk
+      </div>
+      <span class="pipe-arrow">&rarr;</span>
+      <div class="pipe-node flame-node">
+        <span class="label">Representation</span>
+        FLAME 106-dim
+      </div>
+      <span class="pipe-arrow">&rarr;</span>
+      <div class="pipe-node highlight">
+        <span class="label">Renderer</span>
+        SplattingAvatar
+      </div>
+      <span class="pipe-arrow">&rarr;</span>
+      <div class="pipe-node">
+        <span class="label">Output</span>
+        Video
+      </div>
+    </div>
+    <div class="pipe-detail">
+      FLAME motion = 100 expression + 3 head rotation + 3 jaw rotation (axis-angle)
+    </div>
+  </section>
+
+  <!-- Phases -->
+  <section>
+    <h2>Progress</h2>
+
+    <div class="phase">
+      <div class="phase-header">
+        <span class="phase-num">01</span>
+        <span class="phase-title">ARTalk Validation</span>
+        <span class="phase-tag tag-complete">Complete</span>
+      </div>
+      <ul>
+        <li>Audio &rarr; <span class="stat">106-dim</span> FLAME params at <span class="stat">25fps</span></li>
+        <li><span class="stat">84/100</span> expression dims active (vs ~10 with BFM-based methods like GaussianTalker)</li>
+        <li>Clear lip sync, head movement, and blinks visible in FLAME wireframe render</li>
+      </ul>
+    </div>
+
+    <div class="phase">
+      <div class="phase-header">
+        <span class="phase-num">02</span>
+        <span class="phase-title">SplattingAvatar Training</span>
+        <span class="phase-tag tag-complete">Complete</span>
+      </div>
+      <ul>
+        <li>Trained on <span class="stat">838 frames</span> from 30s video on RTX 4090</li>
+        <li>Converts metrical-tracker FLAME data &rarr; Gaussian splat avatar</li>
+        <li><span class="stat">30K iterations</span>, ~34 min training, <span class="stat">516K Gaussians</span></li>
+        <li>Key challenge: face crop alignment between tracker and training images (see insights below)</li>
+      </ul>
+    </div>
+
+    <div class="phase">
+      <div class="phase-header">
+        <span class="phase-num">03</span>
+        <span class="phase-title">End-to-End Driving</span>
+        <span class="phase-tag tag-complete">Complete</span>
+      </div>
+      <ul>
+        <li>ARTalk <code>expression[:50]</code> &rarr; FLAME expression params</li>
+        <li>ARTalk <code>jaw_rot</code> &rarr; FLAME jaw pose, global orient zeroed (trained with camera rotation)</li>
+        <li>Rendered <span class="stat">475 frames</span> with synced audio &mdash; pipeline proven working</li>
+        <li>Quality limited by face crop misalignment in v3 training data</li>
+      </ul>
+    </div>
+
+    <div class="phase">
+      <div class="phase-header">
+        <span class="phase-num">04</span>
+        <span class="phase-title">Crop Alignment Fix &amp; Retrain</span>
+        <span class="phase-tag tag-active">In Progress</span>
+      </div>
+      <ul>
+        <li>Root cause identified: tracker uses asymmetric crop &rarr; <code>squarefiy</code> (pad to square) &rarr; resize</li>
+        <li>Our original crop used a symmetric square bbox, shifting the principal point by ~28px</li>
+        <li>Replicated metrical-tracker's exact crop pipeline from source code</li>
+        <li>v4 training running with properly aligned images &mdash; PSNR already exceeding v3</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Technical Insights -->
+  <section>
+    <h2>Key Technical Insights</h2>
+    <div class="insights">
+      <div class="insight">
+        <span class="insight-num">01</span>
+        <div class="insight-text">
+          <code>world_mat</code> must store <strong>R.T</strong> (transposed). SplattingAvatar's <code>getWorld2View2</code> transposes R internally, so the stored rotation must be <code>R_opencv.T</code>, not <code>R_opencv</code>.
+        </div>
+      </div>
+      <div class="insight">
+        <span class="insight-num">02</span>
+        <div class="insight-text">
+          IMavatar's FLAME uses a <strong>4&times; geometry scale</strong>. All vertices, shape dirs, and pose dirs are multiplied by 4. Camera translation must be scaled by 4 to compensate.
+        </div>
+      </div>
+      <div class="insight">
+        <span class="insight-num">03</span>
+        <div class="insight-text">
+          Face crop must replicate the <strong>exact tracker pipeline</strong>: <code>get_bbox</code> (may clip at image edges &rarr; non-square) &rarr; <code>squarefiy</code> (pad symmetrically to square) &rarr; resize to 512. The padding shifts cx/cy away from center.
+        </div>
+      </div>
+      <div class="insight">
+        <span class="insight-num">04</span>
+        <div class="insight-text">
+          Expression coefficients <strong>transfer directly</strong> between ARTalk and SplattingAvatar &mdash; both use the FLAME 2020 expression space. First 50 of ARTalk's 100 dims map 1:1.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Status -->
+  <section>
+    <h2>Current Status</h2>
+    <div class="status-bar">
+      <div class="status-dot"></div>
+      <div class="status-text">
+        <strong>v4 training</strong> &mdash; 30K iterations with properly aligned face crops. Expecting significant quality improvement over v3 (PSNR 20.0 &rarr; higher). Re-driving with ARTalk after training completes.
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Being Project &mdash; 2026-02-25</span>
+    <span>RTX 4090 &middot; Python 3.11 &middot; PyTorch 2.4</span>
+  </footer>
+
+</div>
+</body>
+</html>
